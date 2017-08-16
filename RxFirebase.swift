@@ -16,26 +16,26 @@ import RxSwift
 // ============================================================================
 // MARK: FirebaseError
 // ============================================================================
-public enum FirebaseError: ErrorType, CustomStringConvertible {
+public enum FirebaseError: Error, CustomStringConvertible {
     
     case NotAuthenticated
     case AuthDataNotValid
     case PermissionDenied
     case DownloadError
     case Custom(message: String)
-
+    
     
     public var description: String {
         switch self {
-        case NotAuthenticated:
+        case .NotAuthenticated:
             return "Not authenticated"
-        case AuthDataNotValid:
+        case .AuthDataNotValid:
             return "Authentication data is not valid"
         case .PermissionDenied:
             return "permission denied"
         case .DownloadError:
             return "download error"
-        case Custom(let message):
+        case .Custom(let message):
             return "\(message)"
         }
     }
@@ -50,34 +50,34 @@ class Firebase {
     
     static let instance = Firebase()
     
-    let rx_user = ReplaySubject<FIRUser?>.create(bufferSize: 1)
+    let rx_user = ReplaySubject<User>.create(bufferSize: 1)
     let rx_error = PublishSubject<String>()
     
     // private
     private let disposeBag = DisposeBag()
-    var database : FIRDatabaseReference?
-    var storage : FIRStorageReference?
+    var database : DatabaseReference?
+    var storage : StorageReference?
     
     
     private init() {
         // firebase
-        FIRApp.configure()
+        FirebaseApp.configure()
         
-        database = FIRDatabase.database().reference()
-        storage = FIRStorage.storage().reference()
+        database = Database.database().reference()
+        storage = Storage.storage().reference()
     }
-
+    
     var clientID : String? {
-        return FIRApp.defaultApp()?.options.clientID
+        return FirebaseApp.app()?.options.clientID
     }
     var userID : String? {
-        return FIRAuth.auth()?.currentUser?.uid
+        return Auth.auth().currentUser?.uid
     }
     
     func signOut() {
         do {
-            try FIRAuth.auth()?.signOut()
-            rx_user.onNext(nil)
+            try Auth.auth().signOut()
+            rx_user.onNext(Auth.auth().currentUser!) //user will be nill can check on call back
         } catch let signOutError as NSError {
             rx_error.onNext(signOutError.localizedDescription)
         }
@@ -90,10 +90,9 @@ class Firebase {
 // MARK: AUTH
 // ============================================================================
 extension Firebase {
-
-    func rx_currentUser() -> Observable<FIRUser> {
+    func rx_currentUser() -> Observable<User> {
         
-        if let user = FIRAuth.auth()?.currentUser {
+        if let user = Auth.auth().currentUser {
             return Observable.just(user)
         }
         else {
@@ -101,49 +100,46 @@ extension Firebase {
         }
     }
     
-    func rx_authStateDidChange() -> Observable<FIRAuth> {
-        
-        return Observable.create { (observer : AnyObserver<FIRAuth>) -> Disposable in
+    func rx_authStateDidChange() -> Observable<Auth> {
+        var authStateListenerHandle: AuthStateDidChangeListenerHandle?
+        return Observable.create { (observer : AnyObserver<Auth>) -> Disposable in
             
-            let listener = FIRAuth.auth()?.addAuthStateDidChangeListener { auth, _ in
+            let listener = Auth.auth().addStateDidChangeListener { auth, _ in
                 observer.onNext(auth)
             }
+            return Disposables.create()
             
-            return AnonymousDisposable {
-                if let listener = listener {
-                    FIRAuth.auth()?.removeAuthStateDidChangeListener(listener)
-                }
-            }
         }
+        
     }
     
-    func rx_signInWithEmail(email: String, password: String) -> Observable<FIRUser> {
+    func rx_signInWithEmail(email: String, password: String) -> Observable<User> {
         
         guard email.characters.count > 0 && password.characters.count > 0 else {
             return Observable.error(FirebaseError.AuthDataNotValid)
         }
         
-        return Observable.create { (observer : AnyObserver<FIRUser>) -> Disposable in
+        return Observable.create { (observer : AnyObserver<User>) -> Disposable in
             
-            FIRAuth.auth()?.signInWithEmail(email, password: password) { user, error in
-                    if let error = error {
-                        observer.onError(error)
-                    }
-                    if let user = user {
-                        observer.onNext(user)
-                        observer.onCompleted()
-                    }
+            Auth.auth().signIn(withEmail: email, password: password) { user, error in
+                if let error = error {
+                    observer.onError(error)
+                }
+                if let user = user {
+                    observer.onNext(user)
+                    observer.onCompleted()
+                }
             }
             
-            return NopDisposable.instance
+            return Disposables.create()
         }
     }
     
-    func rx_signInWithCredential(credential: FIRAuthCredential) -> Observable<FIRUser> {
+    func rx_signInWithCredential(credential: AuthCredential) -> Observable<User> {
         
-        return Observable.create { (observer : AnyObserver<FIRUser>) -> Disposable in
+        return Observable.create { (observer : AnyObserver<User>) -> Disposable in
             
-            FIRAuth.auth()?.signInWithCredential(credential, completion: { user, error in
+            Auth.auth().signIn(with: credential, completion: { user, error in
                 if let error = error {
                     observer.onError(error)
                 }
@@ -153,7 +149,7 @@ extension Firebase {
                 }
             })
             
-            return NopDisposable.instance
+            return Disposables.create()
         }
     }
     
@@ -161,7 +157,7 @@ extension Firebase {
         
         return Observable.create { (observer : AnyObserver<Void>) -> Disposable in
             
-            FIRAuth.auth()?.sendPasswordResetWithEmail(email) { error in
+            Auth.auth().sendPasswordReset(withEmail: email) { error in
                 if let error = error {
                     observer.onError(FirebaseError.Custom(message: error.localizedDescription))
                 } else {
@@ -170,29 +166,29 @@ extension Firebase {
                 }
             }
             
-            return NopDisposable.instance
+            return Disposables.create()
         }
     }
     
-    func rx_createUser(email: String, password: String) -> Observable<FIRUser> {
+    func rx_createUser(email: String, password: String) -> Observable<User> {
         
         guard email.characters.count > 0 && password.characters.count > 0 else {
             return Observable.error(FirebaseError.AuthDataNotValid)
         }
         
-        return Observable.create { (observer : AnyObserver<FIRUser>) -> Disposable in
+        return Observable.create { (observer : AnyObserver<User>) -> Disposable in
             
-            FIRAuth.auth()?.createUserWithEmail(email, password: password) { user, error in
-                    if let error = error {
-                        observer.onError(error)
-                    }
-                    if let user = user {
-                        observer.onNext(user)
-                        observer.onCompleted()
-                    }
+            Auth.auth().createUser(withEmail: email, password: password) { user, error in
+                if let error = error {
+                    observer.onError(error)
+                }
+                if let user = user {
+                    observer.onNext(user)
+                    observer.onCompleted()
+                }
             }
             
-            return NopDisposable.instance
+            return Disposables.create()
         }
     }
     
@@ -205,52 +201,52 @@ extension Firebase {
         return database
             .root
             .child(atPath)
-            .rx_setValue(object)
+            .rx_setValue(object: object)
     }
+    
 }
-
 
 // ============================================================================
 // MARK: STORAGE
 // ============================================================================
-extension FIRStorageReference {
-
+extension StorageReference {
+    
     /**
      store **UIImage as JPEG**
      */
-    func rx_putJPEG(image: UIImage, compressionQuality: CGFloat = 1) -> Observable<FIRStorageMetadata> {
+    func rx_putJPEG(image: UIImage, compressionQuality: CGFloat = 1) -> Observable<StorageMetadata> {
         
         guard let imageData = UIImageJPEGRepresentation(image, compressionQuality) else {
             return Observable.error(FirebaseError.Custom(message: "conversion error"))
         }
         
-        let metadata = FIRStorageMetadata()
+        let metadata = StorageMetadata()
         metadata.contentType = "image/jpeg"
-        // metadata.cacheControl = "public,max-age=300"
+        //metadata.cacheControl = "public,max-age=300"
         
-        return rx_putData(withData: imageData, metadata: metadata)
+        return rx_putData(withData: imageData as NSData, metadata: metadata)
     }
     
     /**
      store **NSData**
      */
-    func rx_putData(withData withData: NSData, metadata: FIRStorageMetadata? = nil) -> Observable<FIRStorageMetadata> {
+    func rx_putData(withData: NSData, metadata: StorageMetadata? = nil) -> Observable<StorageMetadata> {
         
-        return Observable.create { (observer : AnyObserver<FIRStorageMetadata>) -> Disposable in
+        return Observable.create { (observer : AnyObserver<StorageMetadata>) -> Disposable in
             
-            let uploadTask = self.putData(withData, metadata: metadata) { metadata, error in
-                    
-                    if let error = error {
-                        observer.onError(FirebaseError.Custom(message: error.localizedDescription))
-                    } else if let metadata = metadata {
-                        observer.onNext(metadata)
-                        observer.onCompleted()
-                    } else {
-                        observer.onError(FirebaseError.Custom(message: "storage: no metadata"))
-                    }
+            let uploadTask = self.putData(withData as Data, metadata: metadata) { metadata, error in
+                
+                if let error = error {
+                    observer.onError(FirebaseError.Custom(message: error.localizedDescription))
+                } else if let metadata = metadata {
+                    observer.onNext(metadata)
+                    observer.onCompleted()
+                } else {
+                    observer.onError(FirebaseError.Custom(message: "storage: no metadata"))
+                }
             }
             
-            return AnonymousDisposable {
+            return Disposables.create{
                 uploadTask.cancel()
             }
         }
@@ -263,18 +259,18 @@ extension FIRStorageReference {
         
         return Observable.create { (observer : AnyObserver<NSData>) -> Disposable in
             
-            let downloadTask = self.dataWithMaxSize(maxSize) { data, error -> Void in
-                    if let error = error {
-                        observer.onError(FirebaseError.Custom(message: error.localizedDescription))
-                    } else if let data = data {
-                        observer.onNext(data)
-                        observer.onCompleted()
-                    } else {
-                        observer.onError(FirebaseError.Custom(message: "storage: no data"))
-                    }
+            let downloadTask = self.getData(maxSize: maxSize) { data, error -> Void in
+                if let error = error {
+                    observer.onError(FirebaseError.Custom(message: error.localizedDescription))
+                } else if let data = data {
+                    observer.onNext(data as NSData)
+                    observer.onCompleted()
+                } else {
+                    observer.onError(FirebaseError.Custom(message: "storage: no data"))
                 }
+            }
             
-            return AnonymousDisposable {
+            return Disposables.create {
                 downloadTask.cancel()
             }
         }
@@ -287,7 +283,7 @@ extension FIRStorageReference {
         
         return rx_downloadData().map({ data -> UIImage in
             
-            guard let image = UIImage(data: data) else {
+            guard let image = UIImage(data: data as Data) else {
                 throw FirebaseError.Custom(message: "conversion error")
             }
             
@@ -298,32 +294,32 @@ extension FIRStorageReference {
     /**
      download to **local NSURL**
      */
-    func rx_downloadTo(url url: NSURL) -> Observable<Void> {
+    func rx_downloadTo(url: NSURL) -> Observable<Void> {
         
         return Observable.create { (observer : AnyObserver<Void>) -> Disposable in
             
             /*
-            let paths = NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory.DocumentDirectory,
-                NSSearchPathDomainMask.UserDomainMask, true)
-            let documentsDirectory = paths[0]
-            let filePath = "file:\(documentsDirectory)/myimage.jpg"
-            let storagePath = NSUserDefaults.standardUserDefaults().objectForKey("storagePath") as! String
-            */
+             let paths = NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory.DocumentDirectory,
+             NSSearchPathDomainMask.UserDomainMask, true)
+             let documentsDirectory = paths[0]
+             let filePath = "file:\(documentsDirectory)/myimage.jpg"
+             let storagePath = NSUserDefaults.standardUserDefaults().objectForKey("storagePath") as! String
+             */
             
             // NSURL.fileURLWithPath("file:\(filename)")
             
-            let downloadTask = self.writeToFile(url, completion: { url, error in
-                    if let error = error {
-                        observer.onError(FirebaseError.Custom(message: error.localizedDescription))
-                    } else if let _ = url {
-                        observer.onNext()
-                        observer.onCompleted()
-                    } else {
-                        observer.onError(FirebaseError.DownloadError)
-                    }
-                })
+            let downloadTask = self.write(toFile: url as URL, completion: { url, error in
+                if let error = error {
+                    observer.onError(FirebaseError.Custom(message: error.localizedDescription))
+                } else if let _ = url {
+                    observer.onNext()
+                    observer.onCompleted()
+                } else {
+                    observer.onError(FirebaseError.DownloadError)
+                }
+            })
             
-            return AnonymousDisposable {
+            return Disposables.create{
                 downloadTask.cancel()
             }
         }
@@ -336,7 +332,7 @@ extension FIRStorageReference {
 // ============================================================================
 // MARK: DATABASE
 // ============================================================================
-extension FIRDatabaseReference {
+extension DatabaseReference {
     
     /**
      set Dictionary to **`self`** or **`childByAutoId()`**
@@ -348,33 +344,33 @@ extension FIRDatabaseReference {
             let reference = autoId ? self.childByAutoId() : self
             
             reference.setValue(object, withCompletionBlock: { (error, _) in
-                    if let error = error {
-                        observer.onError(FirebaseError.Custom(message: error.localizedDescription))
-                    } else {
-                        observer.onNext()
-                        observer.onCompleted()
-                    }
-                })
+                if let error = error {
+                    observer.onError(FirebaseError.Custom(message: error.localizedDescription))
+                } else {
+                    observer.onNext()
+                    observer.onCompleted()
+                }
+            })
             
-            return NopDisposable.instance
+            return Disposables.create()
         }
     }
     
     /**
      observe event
      */
-    func rx_observe(eventType: FIRDataEventType = .Value) -> Observable<FIRDataSnapshot> {
+    func rx_observe(eventType: DataEventType) -> Observable<DataSnapshot> {
         
         return Observable.create({ observer in
             
-            let observer = self.observeEventType(eventType, withBlock: { data in
-                    observer.onNext(data)
-                    }, withCancelBlock: { error in
-                        observer.onError(FirebaseError.Custom(message: error.localizedDescription))
-                })
+            let observer = self.observe(eventType, with: { data in
+                observer.onNext(data)
+            }, withCancel: { error in
+                observer.onError(FirebaseError.Custom(message: error.localizedDescription))
+            })
             
-            return AnonymousDisposable{
-                self.removeObserverWithHandle(observer)
+            return Disposables.create{
+                
             }
         })
     }
@@ -382,18 +378,18 @@ extension FIRDatabaseReference {
     /**
      observe single event
      */
-    func rx_observeSingleEventOfType(eventType: FIRDataEventType = .Value) -> Observable<FIRDataSnapshot> {
+    func rx_observeSingleEventOfType(eventType: DataEventType = .value) -> Observable<DataSnapshot> {
         
         return Observable.create({ observer in
             
-            self.observeSingleEventOfType(eventType, withBlock: { data in
+            self.observeSingleEvent(of: eventType, with: { data in
                 observer.onNext(data)
                 observer.onCompleted()
-                }, withCancelBlock: { error in
-                    observer.onError(FirebaseError.Custom(message: error.localizedDescription))
+            }, withCancel: { error in
+                observer.onError(FirebaseError.Custom(message: error.localizedDescription))
             })
             
-            return NopDisposable.instance
+            return Disposables.create()
         })
     }
 }
