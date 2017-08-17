@@ -20,13 +20,13 @@ pod 'RxSwift'
 pod 'RxCocoa'
 ```
 
-#### 2) subscribe to `rx_user` in `didFinishLaunchingWithOptions`
+#### 2) subscribe to `rx_authStateDidChange` in `didFinishLaunchingWithOptions`
 
 ```
 Firebase
 	.instance
-	.rx_user
-	.subscribeNext { [weak self] user in
+	.rx_authStateDidChange()
+	.subscribe(onNext: { [weak self] auth, user in
 		if let user = user {
 			// logged in
 			self?.showMainInterface()
@@ -40,11 +40,8 @@ Firebase
 
 #### 2) begin using the provided `Observables` or implement your own ones for your models
 
-You can also check my [article](https://alt-tab.ghost.io/protocol-extensions-model/) on protocol extensions and how they can be used to simplify adding behaviour to your models.
-
 
 ```
-* Firebase.instance.rx_currentUser()
 * Firebase.instance.rx_authStateDidChange()
 * Firebase.instance.rx_signInWithEmail(email: String, password: String)
 * Firebase.instance.rx_signInWithCredential(credential: FIRAuthCredential)
@@ -71,10 +68,10 @@ guard let storage = Firebase.instance.storage else {
 }
 
 storage.root().child("your_path").rx_putJPEG(image: UIImage, compressionQuality: CGFloat = 1)
-storage.root().child("your_path").rx_putData(withData withData: NSData, metadata: FIRStorageMetadata? = nil)
+storage.root().child("your_path").rx_putData(withData withData: Data, metadata: FIRStorageMetadata? = nil)
 storage.root().child("your_path").rx_downloadData(maxSize: Int64 = 1024 * 1024)
 storage.root().child("your_path").rx_downloadImage()
-storage.root().child("your_path").rx_downloadTo(url url: NSURL)
+storage.root().child("your_path").rx_downloadTo(url url: URL)
 ```
 
 As usual, if any of you has something to say, please create a new issue and we'll update the code together.
