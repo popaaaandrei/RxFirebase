@@ -79,6 +79,7 @@ class Firebase {
     var user: User? {
         return Auth.auth().currentUser
     }
+    let rx_user = ReplaySubject<User>.create(bufferSize: 1)
     
     /// signOut of Firebase, errors published in `rx_error`
     func signOut() {
@@ -96,6 +97,17 @@ class Firebase {
 // MARK: AUTH
 // ============================================================================
 extension Firebase {
+    
+    
+    func rx_currentUser() -> Observable<User> {
+        
+        if let user = Auth.auth().currentUser {
+            return Observable.just(user)
+        }
+        else {
+            return Observable.error(FirebaseError.notAuthenticated)
+        }
+    }
     
     
     /// exposes the changes in Auth and User
@@ -321,6 +333,50 @@ extension StorageReference {
 
 
 // ============================================================================
+// MARK: DATABASE QUERY
+// ============================================================================
+extension DatabaseQuery {
+    
+    
+    /**
+     observe query event
+     */
+    func rx_observe_query(eventType: DataEventType = .value) -> Observable<DataSnapshot> {
+        
+        return Observable.create({ observer in
+            
+            let observer = self.observe(eventType, with: { data in
+                observer.onNext(data)
+            }, withCancel: { error in
+                observer.onError(FirebaseError.custom(message: error.localizedDescription))
+            })
+            
+            return Disposables.create {
+                self.removeObserver(withHandle: observer)
+            }
+        })
+    }
+    
+    /**
+     observe single query event
+     */
+    func rx_observeSingleEventOfType_query(eventType: DataEventType = .value) -> Observable<DataSnapshot> {
+        
+        return Observable.create({ observer in
+            
+            self.observeSingleEvent(of: eventType, with: { data in
+                observer.onNext(data)
+                observer.onCompleted()
+            }, withCancel: { error in
+                observer.onError(FirebaseError.custom(message: error.localizedDescription))
+            })
+            
+            return Disposables.create()
+        })
+    }
+}
+
+// ============================================================================
 // MARK: DATABASE
 // ============================================================================
 extension DatabaseReference {
@@ -384,5 +440,3 @@ extension DatabaseReference {
         })
     }
 }
-
-
